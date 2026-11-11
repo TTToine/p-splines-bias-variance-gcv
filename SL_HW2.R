@@ -18,20 +18,38 @@ df_data <- data.frame(x = x, y = y, y_true = y_true)
 spl <- smooth.spline(x, y, spar = 0.6) 
 y_pred_smooth <- predict(spl, x)$y
 
-df_smooth <- data.frame(x = x, y = y, y_true = y_true, y_pred = y_pred_smooth)
+# Pointwise 95% band (Wahba's Bayesian interval).
+# With spar fixed, the smoothing spline is a linear smoother: y_hat = S y.
+# Column j of S is the fit to the j-th unit vector.
+n <- length(x)
+S <- sapply(seq_len(n), function(j) {
+  e_j <- numeric(n); e_j[j] <- 1
+  predict(smooth.spline(x, e_j, spar = 0.6), x)$y
+})
+edf_smooth <- sum(diag(S))                                    # equals spl$df
+sigma2_hat <- sum((y - y_pred_smooth)^2) / (n - edf_smooth)   # residual variance
+se_bayes   <- sqrt(sigma2_hat * diag(S))                      # Wahba (1983): Var = sigma^2 * S_ii
+cat(sprintf("Smoothing spline: EDF = %.2f (spl$df = %.2f), sigma_hat = %.3f\n",
+            edf_smooth, spl$df, sqrt(sigma2_hat)))
+
+df_smooth <- data.frame(x = x, y = y, y_true = y_true, y_pred = y_pred_smooth,
+                        lower = y_pred_smooth - 1.96 * se_bayes,
+                        upper = y_pred_smooth + 1.96 * se_bayes)
 
 p1 <- ggplot(df_smooth, aes(x = x)) +
   geom_point(aes(y = y), color = "gray", alpha = 0.5, size = 1.5) +
   geom_line(aes(y = y_true), linetype = "dashed", color = "black", linewidth = 1) +
-  # Sostituito "crimson" con il suo HEX code #DC143C
-  geom_ribbon(aes(ymin = y_pred - 0.3, ymax = y_pred + 0.3), fill = "#DC143C", alpha = 0.15) +
+  # Pointwise 95% Bayesian band (Wahba), computed above
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "#DC143C", alpha = 0.15) +
   geom_line(aes(y = y_pred), color = "#DC143C", linewidth = 1.2) +
   theme_minimal(base_size = 14) +
   theme(
     panel.grid.major = element_line(color = "grey85"),
     panel.background = element_rect(fill = "#EAEAF2", color = NA) # Simula darkgrid di seaborn
   ) +
-  labs(title = "Smoothing Spline Classica (Wahba)", x = "x", y = "y")
+  labs(title = "Smoothing Spline Classica (Wahba)",
+       subtitle = "Banda: intervallo bayesiano puntuale al 95% (Wahba, 1983)",
+       x = "x", y = "y")
 
 ggsave("slide2_smoothing_spline.png", plot = p1, width = 10, height = 6, dpi = 350, bg = "white")
 
